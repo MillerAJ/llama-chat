@@ -1,0 +1,4 @@
+#!/bin/sh
+# Start llama-chat using its own private Python (so nothing else on the server is touched).
+# Any arguments are passed through:  llama-chat --url localhost:8080
+exec "$HOME/llama-chat/.venv/bin/python" "$HOME/llama-chat/chat.py" "$@"

@@ -1,0 +1,4 @@
+* text=auto
+# The launcher is run by a Linux shell, so it must keep Unix line endings.
+llama-chat text eol=lf
+*.py text eol=lf
