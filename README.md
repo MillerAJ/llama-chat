@@ -35,9 +35,30 @@ Optional shortcut: put the small `llama-chat` script on your `PATH` (for example
 | `--url` | where the server listens: `localhost:8080`, `192.168.1.50:8000`, or a full `http://...` address |
 | `--model` | model name to use. If left out, llama-chat asks the server which model it is serving |
 | `--api-key` | only if your server requires one (also read from `LLAMA_API_KEY`) |
+| `--searx` | SearXNG address for web search (default `http://localhost:8888`, also read from `SEARXNG_URL`) |
+| `--no-search` | turn web search off |
+| `-c`, `--continue` | pick up the most recent saved conversation |
+| `--incognito` | don't save this conversation |
 
 The address is forgiving: `host:port`, `http://host:port` and `http://host:port/v1` all work.
 `LLAMA_URL` sets the default address.
+
+## Web search
+
+The model can call a `web_search` tool when it needs current facts. llama-chat runs the search
+against your [SearXNG](https://docs.searxng.org) server (JSON output must be enabled), hands the
+top results back to the model, and the model answers from them. The bubble shows
+"Searching the web: ..." while it works. The model needs native function calling (vLLM with
+tool calling on, as ADAM-lite uses).
+
+If SearXNG only listens on its own machine, tunnel to it first, for example
+`ssh -L 8888:127.0.0.1:8888 motherbrain`, then the default address just works.
+
+## Saved chats
+
+Every conversation is saved after each answer as a small JSON file in `~/.llama-chat/chats/`
+(set `LLAMA_CHAT_DATA` to move it). Start with `llama-chat -c` to continue the latest one: the
+earlier messages are redrawn and the model remembers them. `--incognito` keeps a chat off disk.
 
 ## How the code works
 
