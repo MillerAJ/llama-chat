@@ -86,5 +86,10 @@ to talk to the server. Five moves:
 
 ## Status
 
-Early and deliberately small. It chats, streams, and remembers the conversation. Ideas for later:
-a model switcher, live GPU meters, saved history, themes.
+Early and deliberately small. It chats, streams, searches the web, reads pages, and keeps saved
+history. Ideas for later: a model switcher, live GPU meters, themes, an editable personality file.
+
+## Credits
+
+Designed and tested by MillerAJ, and built together with [Claude Code](https://claude.com/claude-code),
+Anthropic's coding assistant.
