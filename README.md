@@ -37,6 +37,7 @@ Optional shortcut: put the small `llama-chat` script on your `PATH` (for example
 | `--api-key` | only if your server requires one (also read from `LLAMA_API_KEY`) |
 | `--searx` | SearXNG address for web search (default `http://localhost:8888`, also read from `SEARXNG_URL`) |
 | `--no-search` | turn web search off |
+| `--fetch` | address of a page-reading service so the model can open links (also `FETCH_URL`); off without it |
 | `-c`, `--continue` | pick up the most recent saved conversation |
 | `--incognito` | don't save this conversation |
 
@@ -53,6 +54,17 @@ tool calling on, as ADAM-lite uses).
 
 If SearXNG only listens on its own machine, tunnel to it first, for example
 `ssh -L 8888:127.0.0.1:8888 motherbrain`, then the default address just works.
+
+### Reading pages
+
+Search results are only snippets, so they often lack the actual answer (a temperature, a score).
+With `--fetch` set, the model also gets a `fetch_url` tool: it searches, opens the best result,
+reads the text and answers from that, and the bubble shows "Reading: ...". Long pages arrive in
+parts the model can read on through. The service behind it is deliberately tiny: it answers
+`GET /fetch?url=<address>&start=<n>` with the page as plain text. Whoever runs that service decides
+what the model is allowed to reach, so it should refuse localhost and private network addresses.
+Page text is treated as untrusted: the system prompt tells the model not to follow instructions
+found inside it.
 
 ## Saved chats
 
