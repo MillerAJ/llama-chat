@@ -40,6 +40,7 @@ Optional shortcut: put the small `llama-chat` script on your `PATH` (for example
 | `--fetch` | address of a page-reading service so the model can open links (also `FETCH_URL`); off without it |
 | `-c`, `--continue` | pick up the most recent saved conversation |
 | `--incognito` | don't save this conversation |
+| `--adam` | start in ADAM mode (see below) |
 
 The address is forgiving: `host:port`, `http://host:port` and `http://host:port/v1` all work.
 `LLAMA_URL` sets the default address.
@@ -71,6 +72,30 @@ found inside it.
 Every conversation is saved after each answer as a small JSON file in `~/.llama-chat/chats/`
 (set `LLAMA_CHAT_DATA` to move it). Start with `llama-chat -c` to continue the latest one: the
 earlier messages are redrawn and the model remembers them. `--incognito` keeps a chat off disk.
+
+## ADAM mode
+
+Open the menu (the button at the top left, or press `F2` for Settings) and tick **ADAM mode**.
+You get ADAM from *Metroid Fusion*, laid out like the game's dialogue screen. At the bottom: his dialogue
+box, dark green with a glowing green rim, drawn as one piece of pixel art with his eye sitting on its top-left
+corner in a grey metal mount that wraps around the box. That box is where you type: your words start at the
+top after a ▸ prompt and fill the box as you go; Enter sends. His replies appear in the conversation above,
+with a blinking cursor while he talks. His readouts (status, model, message count) sit just above the box, to
+the right of the eye, which grows with your terminal. His voice:
+calm, economical, a little mission briefing, and "Sir" in every reply.
+
+The eye is alive. The pupil breathes and sometimes snaps into focus, it blinks now and then, and
+now and then the iris drifts to another colour. It also shows what ADAM is doing: it narrows and
+focuses while thinking, turns cyan with a scanner beam while searching, amber while reading a page,
+and red if something goes wrong. Click it to make it blink. Click it three times fast for a surprise.
+
+Also in Settings: **Text sounds** (a soft blip as letters appear; on Windows it plays a real sound,
+elsewhere it rings the terminal bell, so over SSH you need audible bells enabled in your terminal)
+and **Animation** (turn the movement off if you prefer stillness). Choices are remembered in
+`settings.json` next to your saved chats. It needs a terminal with true colour.
+
+The eye is drawn by [`eyeart.py`](eyeart.py) (plain Python, no dependencies); [`adam.py`](adam.py)
+animates it and holds the settings window, the sound and ADAM's voice.
 
 ## How the code works
 
