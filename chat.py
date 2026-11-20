@@ -274,7 +274,9 @@ class ChatApp(App):
         n = max(12, min(32, (h * 6 // 10) // 2 * 2, (w // 4) // 2 * 2))
         if n != self.eye.n:
             self.eye.set_size(n)
-        box_h = n // 2 + 3                                     # the eye and its mount; the box sits on its lower half
+        # The eye sits right on the bottom edge (no mount showing below it) and the box starts at the eye's
+        # middle, so the bar is just the eye's height; small eyes keep at least two lines to type in.
+        box_h = max(n // 2, n // 4 + 6)
         self.speech.styles.height = box_h
         self.speech.place_input()
         if self.settings["eye"]:

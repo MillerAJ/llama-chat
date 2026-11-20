@@ -415,7 +415,7 @@ class EyeDialogue(Widget):
     def render(self) -> Text:
         w, h, n = self.size.width, self.size.height, self.eye.n
         out = Text(no_wrap=True, overflow="crop")
-        if w < eyeart.eye_width(n) + 12 or h < n // 2 + 2:
+        if w < eyeart.eye_width(n) + 12 or h < n // 4 + 5:
             return out
         g = eyeart.box_geometry(w, h, n)
         tx0, ty0, tx1, ty1 = g["text"]
