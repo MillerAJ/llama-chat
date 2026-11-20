@@ -305,11 +305,17 @@ class ChatApp(App):
         self.notify(f"Thinking effort: {EFFORT_LABELS[nxt]}", timeout=2)
 
     def on_eye_dialogue_think_clicked(self, event: EyeDialogue.ThinkClicked) -> None:
-        """Clicked THINK in the eye's readouts: a little dropdown of the efforts, right there."""
-        def chosen(effort: str | None) -> None:
-            if effort and effort != self.settings["effort"]:
-                self.apply_setting("effort", effort)
-        self.push_screen(EffortMenu(self.settings["effort"], event.x, event.y), chosen)
+        """Clicked THINK in the eye's readouts: a little dropdown of the efforts, floating right there."""
+        for old in self.screen.query(EffortMenu):      # a second click closes it, like a dropdown
+            old.close(None)
+            return
+        self.screen.mount(EffortMenu(self.settings["effort"], event.x, event.y))
+
+    def on_effort_menu_chosen(self, event: EffortMenu.Chosen) -> None:
+        if event.effort and event.effort != self.settings["effort"]:
+            self.apply_setting("effort", event.effort)
+        shown = self.eye_input if self.settings["eye"] else self.input_box
+        self.call_later(shown.focus)                   # back to typing
 
     def get_system_commands(self, screen):
         """Add our entries to the menu (the button at the top left)."""

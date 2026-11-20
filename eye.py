@@ -465,41 +465,50 @@ class EyeDialogue(Widget):
 
 
 # --- the thinking-effort dropdown (click THINK in the readouts) --------------------
-class EffortMenu(ModalScreen):
-    """A small dropdown at (x, y). Dismisses with the chosen effort, or None (Esc / click outside)."""
+class EffortMenu(OptionList):
+    """A small dropdown floating over the chat screen at (x, y): an overlay, not a separate screen, so the chat
+    keeps drawing (eye, streaming text) behind it. Posts Chosen with the effort, or None (Esc / clicked away)."""
     BINDINGS = [("escape", "close", "Close")]
     DEFAULT_CSS = """
-    EffortMenu { background: transparent; align: left top; }
-    EffortMenu OptionList { width: 12; height: auto; background: #14162b; border: round #36b08f; padding: 0; }
-    EffortMenu OptionList > .option-list--option-highlighted { background: #2a3b63; }
+    EffortMenu { overlay: screen; position: absolute; width: 12; height: auto; background: #14162b;
+                 border: round #36b08f; padding: 0; }
+    EffortMenu > .option-list--option-highlighted { background: #2a3b63; }
     """
 
-    def __init__(self, current: str, x: int, y: int) -> None:
-        super().__init__()
-        self.current, self.at = current, (x, y)
+    class Chosen(Message):
+        def __init__(self, effort: str | None) -> None:
+            super().__init__()
+            self.effort = effort
 
-    def compose(self) -> ComposeResult:
-        yield OptionList(*[Option(("● " if e == self.current else "  ") + EFFORT_LABELS[e], id=e) for e in EFFORTS])
+    def __init__(self, current: str, x: int, y: int) -> None:
+        super().__init__(*[Option(("● " if e == current else "  ") + EFFORT_LABELS[e], id=e) for e in EFFORTS])
+        self.current, self.at, self._done = current, (x, y), False
 
     def on_mount(self) -> None:
-        menu = self.query_one(OptionList)
         x, y = self.at
+        w, h = self.screen.size
         rows = len(EFFORTS) + 2
-        if y + rows > self.size.height:                 # no room below: open upwards
+        if y + rows > h:                                # no room below: open upwards
             y = max(0, y - rows - 1)
-        menu.styles.offset = (max(0, min(x - 1, self.size.width - 12)), y)
-        menu.highlighted = EFFORTS.index(self.current)
-        menu.focus()
+        self.styles.offset = (max(0, min(x - 1, w - 12)), y)
+        self.highlighted = EFFORTS.index(self.current)
+        self.focus()
+
+    def close(self, effort: str | None) -> None:
+        if not self._done:
+            self._done = True
+            self.post_message(self.Chosen(effort))
+            self.remove()
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
-        self.dismiss(event.option.id)
+        event.stop()
+        self.close(event.option.id)
 
-    def on_click(self, event: events.Click) -> None:
-        if not self.query_one(OptionList).region.contains(event.screen_x, event.screen_y):
-            self.dismiss(None)                          # clicked outside the menu
+    def on_blur(self) -> None:                          # clicked or tabbed somewhere else
+        self.close(None)
 
     def action_close(self) -> None:
-        self.dismiss(None)
+        self.close(None)
 
 
 # --- the settings window -----------------------------------------------------------
