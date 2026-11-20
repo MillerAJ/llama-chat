@@ -30,6 +30,7 @@ from rich.markdown import Markdown
 from rich.text import Text
 from textual import work
 from textual.app import App, ComposeResult, SystemCommand
+from textual.binding import Binding
 from textual.color import Color as TColor
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import Footer, Header, Input, Static
@@ -37,6 +38,54 @@ from textual.widgets import Footer, Header, Input, Static
 import eyeart
 from eye import (EYE_CSS, EYE_MANNER, EFFORT_LABELS, EFFORTS, STATUS, EyeDialogue, EffortMenu, SettingsScreen,
                   Sound, TypingArea, load_settings, save_settings)
+
+
+class ChatInput(Input):
+    """The plain typing line (outside eye mode) with the usual editing keys: Ctrl+A selects everything,
+    Ctrl+Z / Ctrl+Y undo and redo, Ctrl+C copies (with nothing selected here it copies what you highlighted in the
+    conversation), Ctrl+V pastes."""
+
+    BINDINGS = [Binding("ctrl+a", "select_all", "Select all", show=False),
+                Binding("ctrl+z", "undo", "Undo", show=False),
+                Binding("ctrl+y", "redo", "Redo", show=False)]
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._undo, self._redo, self._restoring = [""], [], False
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if self._restoring or event.value == self._undo[-1]:
+            return
+        prev = self._undo[-1]
+        # Typing a word is one undo step: a change that just adds a non-space letter replaces the last step.
+        if len(self._undo) > 1 and event.value[:-1] == prev and event.value[-1:] not in ("", " ")                 and prev[-1:] not in ("", " "):
+            self._undo[-1] = event.value
+        else:
+            self._undo.append(event.value)
+        del self._undo[:-200]
+        self._redo.clear()
+
+    def _restore(self, value: str) -> None:
+        self._restoring = True
+        self.value = value
+        self.cursor_position = len(value)
+        self.call_after_refresh(setattr, self, "_restoring", False)
+
+    def action_undo(self) -> None:
+        if len(self._undo) > 1:
+            self._redo.append(self._undo.pop())
+            self._restore(self._undo[-1])
+
+    def action_redo(self) -> None:
+        if self._redo:
+            self._undo.append(self._redo.pop())
+            self._restore(self._undo[-1])
+
+    def action_copy(self) -> None:
+        if self.selected_text:
+            super().action_copy()
+        else:
+            self.screen.action_copy_text()
 
 
 # 0. Who the assistant is ------------------------------------------------------
@@ -361,7 +410,7 @@ class ChatApp(App):
         yield VerticalScroll(id="log")                     # the conversation so far
         with Horizontal(id="console"):                     # the bottom bar
             with Vertical(id="unit"):
-                yield Input(placeholder="Type a message and press Enter   (Ctrl+Q quits)", id="msg")
+                yield ChatInput(placeholder="Type a message and press Enter   (Ctrl+Q quits)", id="msg")
                 yield EyeDialogue(id="speech")            # eye mode: eye + readouts + box, where you type
         yield Footer()
 

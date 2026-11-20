@@ -23,6 +23,7 @@ from rich.style import Style
 from rich.text import Text
 from textual import events
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Vertical
 from textual.screen import ModalScreen
 from textual.widget import Widget
@@ -274,7 +275,11 @@ class EyeState:
 
 class TypingArea(TextArea):
     """Your typing line inside the eye's box. It wraps long messages and grows downward as you type,
-    filling the box. Enter sends; it behaves like Input as far as the app is concerned (.value)."""
+    filling the box. Enter sends; it behaves like Input as far as the app is concerned (.value).
+    Ctrl+A selects everything, Ctrl+Z / Ctrl+Y undo and redo, Ctrl+C copies (with nothing selected here it copies
+    what you highlighted in the conversation), Ctrl+V pastes."""
+
+    BINDINGS = [Binding("ctrl+a", "select_all", "Select all", show=False)]
 
     class Submitted(Message):
         def __init__(self, area: "TypingArea", text: str) -> None:
@@ -297,6 +302,12 @@ class TypingArea(TextArea):
             self.post_message(self.Submitted(self, self.text))
             return
         await super()._on_key(event)
+
+    def action_copy(self) -> None:
+        if self.selected_text:
+            super().action_copy()
+        else:                                            # nothing selected here: copy the conversation selection
+            self.screen.action_copy_text()
 
     def rows_needed(self) -> int:
         """How many screen rows your text takes when wrapped to the box's width (plus room for the cursor)."""
