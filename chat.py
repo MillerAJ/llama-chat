@@ -325,12 +325,6 @@ class ChatApp(App):
             now_on = self.settings[key]
             yield SystemCommand(f"{label}: turn {'off' if now_on else 'on'}", f"Currently {'on' if now_on else 'off'}",
                                 lambda k=key, v=not now_on: self.apply_setting(k, v))
-        now = self.settings["effort"]
-        for e in EFFORTS:
-            if e != now:
-                yield SystemCommand(f"Thinking effort: {EFFORT_LABELS[e]}",
-                                    f"Currently {EFFORT_LABELS[now]} (F3 cycles)",
-                                    lambda v=e: self.apply_setting("effort", v))
 
     def new_bot_bubble(self, content="...") -> Static:
         return Static(content, classes="bot")
