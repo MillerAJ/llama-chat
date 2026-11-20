@@ -96,6 +96,18 @@ FETCH_TOOL = {
     },
 }
 MAX_TOOL_ROUNDS = 5   # stop a model that keeps calling tools forever; the last pass must answer in words
+
+# Agent mode: when an agent door is present, replies come from the Agno agent service (agent-box), which
+# has its own tools (web search, page reading, sandboxed Python, files) and keeps the conversation itself.
+AGENT_ID = os.environ.get("AGENT_ID", "assistant")
+AGENT_TOOLS = {                       # tool name -> (eye mode, what the bubble says while it runs)
+    "search_web": ("search", "Searching the web: {query}"),
+    "fetch_page": ("fetch", "Reading: {url}"),
+    "run_python": ("think", "Running Python..."),
+    "list_files": ("think", "Checking the files..."),
+}
+AGENT_HELP = ("Agent commands:  /upload <file>  sends a file from your uploads folder  ·  "
+              "/files  lists this chat's files  ·  /get <name>  saves one to your downloads folder")
 RESULT_COUNT = 6
 
 
@@ -181,8 +193,13 @@ class ChatApp(App):
     def __init__(self, url: str, model: str | None = None, api_key: str | None = None,
                  searx_url: str | None = None, chat_path: Path | None = None, resume: dict | None = None,
                  fetch_url_base: str | None = None, settings: dict | None = None,
-                 settings_path: Path | None = None):
+                 settings_path: Path | None = None, agent_url: str | None = None, agent_key: str | None = None):
         super().__init__()
+        self.agent_url = agent_url.rstrip("/") if agent_url else None       # None = talk to the model directly
+        self.agent_headers = {"Authorization": f"Bearer {agent_key}"} if agent_key else {}
+        # One agent session per saved chat, so `llama-chat -c` picks the agent's memory back up too.
+        stem = chat_path.stem if chat_path else "incognito-" + os.urandom(4).hex()
+        self.agent_session = "llama-chat-" + stem
         self.settings = settings or load_settings(Path("/nonexistent"))      # eye / sounds / motion
         self.settings_path = settings_path
         self.sound = Sound()
@@ -327,6 +344,8 @@ class ChatApp(App):
             elif m["role"] == "assistant" and m.get("content") and not m.get("tool_calls"):
                 await log.mount(self.new_bot_bubble(Markdown(m["content"].lstrip())))
         log.scroll_end(animate=False)
+        if self.agent_url:
+            await log.mount(Static(Text(AGENT_HELP, style="dim italic")))
         if self.model:                     # the user named the model: nothing to look up
             self.sub_title = f"{self.model}  @  {self.url}"
             self.update_stats()
@@ -337,7 +356,8 @@ class ChatApp(App):
                 r = await client.get(f"{self.url}/models")
             r.raise_for_status()
             self.model = r.json()["data"][0]["id"]
-            self.sub_title = f"{self.model}  @  {self.url}"      # shows in the header bar
+            where = f"agent '{AGENT_ID}'" if self.agent_url else self.url
+            self.sub_title = f"{self.model}  @  {where}"      # shows in the header bar
             self.update_stats()
         except Exception as e:
             self.sub_title = f"can't reach {self.url}: {e}"
@@ -355,6 +375,9 @@ class ChatApp(App):
             return
         box.value = ""
         log = self.query_one("#log")
+        if self.agent_url and text.split()[0] in ("/upload", "/files", "/get"):
+            await self.agent_command(text, log)
+            return
         await log.mount(Static(Text(text), classes="you"))   # your bubble
         bot = self.new_bot_bubble()                          # an empty bubble for the answer, in the history
         await log.mount(bot)
@@ -367,6 +390,9 @@ class ChatApp(App):
     # 4. Ask the model, stream the answer in, and run searches it asks for ---
     @work(exclusive=True)
     async def reply(self, bot: Static) -> None:
+        if self.agent_url:
+            await self.reply_agent(bot)
+            return
         log = self.query_one("#log")
         offered = [t for t, addr in ((SEARCH_TOOL, self.searx_url), (FETCH_TOOL, self.fetch_base)) if addr]
         tools = {"tools": offered} if offered else {}
@@ -447,6 +473,120 @@ class ChatApp(App):
             self._live = None
             self.set_mode("idle")
 
+    # 4b. Agent mode: the agent service does the tool work; we stream its answer and show what it is doing --
+    async def reply_agent(self, bot: Static) -> None:
+        log = self.query_one("#log")
+        form = {"message": self.history[-1]["content"], "stream": "true",
+                "session_id": self.agent_session, "user_id": "llama-chat"}
+        answer, final = "", ""
+        self.set_mode("think")
+        try:
+            timeout = httpx.Timeout(10, read=600)
+            async with httpx.AsyncClient(timeout=timeout, headers=self.agent_headers) as client:
+                async with client.stream("POST", f"{self.agent_url}/agents/{AGENT_ID}/runs", data=form) as r:
+                    if r.status_code != 200:
+                        raise RuntimeError(f"agent service answered HTTP {r.status_code}")
+                    event = ""
+                    async for line in r.aiter_lines():
+                        if line.startswith("event: "):
+                            event = line[7:].strip()
+                            continue
+                        if not line.startswith("data: "):
+                            continue
+                        try:
+                            d = json.loads(line[6:])
+                        except json.JSONDecodeError:
+                            continue
+                        event = d.get("event") or event
+                        if event == "RunContent" and d.get("content"):
+                            answer += d["content"]
+                            shown = answer.lstrip() + (self._cursor if self.settings["eye"] else "")
+                            bot.update(Markdown(shown))
+                            self._live = (bot, answer)
+                            self.set_mode("speak")
+                            self.sound.blip(self)
+                            log.scroll_end(animate=False)
+                        elif event == "ToolCallStarted":
+                            tool = d.get("tool") or {}
+                            if isinstance(tool, str):
+                                try:
+                                    tool = json.loads(tool)
+                                except json.JSONDecodeError:
+                                    tool = {}
+                            name, args = tool.get("tool_name", ""), tool.get("tool_args") or {}
+                            mode, label = AGENT_TOOLS.get(name, ("think", f"Using {name}..."))
+                            try:
+                                label = label.format(**{"query": "", "url": "", **args})
+                            except (KeyError, IndexError, ValueError):
+                                pass
+                            self._live = None
+                            answer = ""             # text before a tool call is narration ("I'll search..."): drop it
+                            bot.update(Text(label, style="italic dim"))
+                            self.set_mode(mode)
+                        elif event == "ToolCallCompleted":
+                            self.set_mode("think")
+                        elif event == "RunCompleted":
+                            final = d.get("content") or ""
+                        elif event.endswith("Error") or event == "RunCancelled":
+                            raise RuntimeError(d.get("content") or event)
+            answer = (answer or final).strip() or "(no answer)"
+            self._live = None
+            bot.update(Markdown(answer))                          # final text, without the cursor
+            self.history.append({"role": "assistant", "content": answer})
+            self.save()
+        except Exception as e:
+            bot.update(Text(f"Error: {e}", style="red"))
+            self.eye.flash("error", 4.0)
+        finally:
+            self._live = None
+            self.set_mode("idle")
+
+    async def agent_command(self, text: str, log) -> None:
+        """/upload, /files, /get: move files between your data folder and this chat's agent workspace."""
+        cmd, _, arg = text.partition(" ")
+        arg = arg.strip()
+        base = chats_dir().parent
+        uploads, downloads = base / "uploads", base / "downloads"
+        uploads.mkdir(parents=True, exist_ok=True)
+        downloads.mkdir(parents=True, exist_ok=True)
+        url = f"{self.agent_url}/files/{self.agent_session}"
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(10, read=300), headers=self.agent_headers) as client:
+                if cmd == "/files":
+                    r = await client.get(url)
+                    r.raise_for_status()
+                    msg = "\n".join(f"{f['name']}  ({f['size']:,} bytes)" for f in r.json()) or "No files in this chat yet."
+                elif cmd == "/upload":
+                    src = uploads / Path(arg).name if arg else None
+                    if not src:
+                        have = sorted(p.name for p in uploads.iterdir() if p.is_file())
+                        msg = ("Put files in ~/llama-chat-data/uploads on llama-server, then /upload <name>.\n"
+                               "There now: " + (", ".join(have) or "nothing"))
+                    elif not src.is_file():
+                        msg = f"No file named {src.name} in ~/llama-chat-data/uploads."
+                    else:
+                        with open(src, "rb") as f:
+                            r = await client.post(url, files={"file": (src.name, f)})
+                        r.raise_for_status()
+                        info = r.json()
+                        msg = f"Uploaded {info['name']} ({info['size']:,} bytes). Ask about it by name."
+                else:   # /get
+                    name = Path(arg).name
+                    if not name:
+                        msg = "Usage: /get <name>   (see /files)"
+                    else:
+                        r = await client.get(f"{url}/{name}")
+                        if r.status_code == 404:
+                            msg = f"No file named {name} in this chat."
+                        else:
+                            r.raise_for_status()
+                            (downloads / name).write_bytes(r.content)
+                            msg = f"Saved to ~/llama-chat-data/downloads/{name} ({len(r.content):,} bytes)."
+        except Exception as e:
+            msg = f"Error: {e}"
+        await log.mount(Static(Text(msg, style="dim italic")))
+        log.scroll_end(animate=False)
+
 
 def main() -> None:
     p = argparse.ArgumentParser(
@@ -467,6 +607,9 @@ def main() -> None:
                    help="pick up the most recent saved conversation")
     p.add_argument("--incognito", action="store_true", help="don't save this conversation")
     p.add_argument("--eye", action="store_true", help="start in eye mode (pixel-art eye and the eye's voice)")
+    p.add_argument("--agent", default=os.environ.get("AGENT_URL"),
+                   help="Agno agent service address (env AGENT_URL; key in env AGENT_KEY). Replies then come from the agent")
+    p.add_argument("--no-agent", action="store_true", help="talk to the model directly even if an agent is configured")
     args = p.parse_args()
 
     settings_path = chats_dir().parent / "settings.json"          # remembers eye mode, sounds, animation
@@ -484,7 +627,19 @@ def main() -> None:
             chat_path = folder / f"{datetime.now():%Y-%m-%d_%H%M%S}.json"
     ChatApp(normalize_url(args.url), args.model, args.api_key,
             None if args.no_search else args.searx, chat_path, resume, args.fetch,
-            settings, settings_path).run()
+            settings, settings_path,
+            None if args.no_agent else args.agent, agent_key()).run()
+
+
+def agent_key() -> str | None:
+    """The agent service key: env AGENT_KEY, or the file named by AGENT_KEY_FILE (the jail mounts it read-only)."""
+    if os.environ.get("AGENT_KEY"):
+        return os.environ["AGENT_KEY"]
+    path = os.environ.get("AGENT_KEY_FILE")
+    try:
+        return Path(path).read_text().strip() if path else None
+    except OSError:
+        return None
 
 
 if __name__ == "__main__":

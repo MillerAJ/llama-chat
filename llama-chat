@@ -1,4 +1,98 @@
 #!/bin/sh
-# Start llama-chat using its own private Python (so nothing else on the server is touched).
-# Any arguments are passed through:  llama-chat --url localhost:8080
-exec "$HOME/llama-chat/.venv/bin/python" "$HOME/llama-chat/chat.py" "$@"
+# Start llama-chat inside a bubblewrap jail with NO network.
+#
+# The chat can see: system libs + Python (read-only), its own folder (read-only),
+# a private /tmp, and ONE writable folder for saved chats (/data).
+# Its only ways out are three Unix-socket "doors", each leading to ONE fixed target:
+#   model door   -> the model server          LLAMA_TARGET=host:port         (default 127.0.0.1:8000)
+#   search door  -> SearXNG for web search    LLAMA_SEARCH_TARGET=host:port  (default 192.168.1.196:8888,
+#                                                                             "none" = no search)
+#   fetch door   -> fetch_door.py: reads PUBLIC web pages as plain text (refuses localhost / LAN / private
+#                   addresses, http(s) on ports 80/443 only)   LLAMA_FETCH=none to turn it off
+#   agent door   -> the Agno agent service on agent-box   LLAMA_AGENT_TARGET=host:port (default 192.168.1.210:8100,
+#                   "none" = off). Only opened when the key file exists: LLAMA_AGENT_KEY_FILE
+#                   (default ~/.config/llama-chat/agent.key, mode 600). The key is bind-mounted read-only, never
+#                   passed on a command line. With the agent on, replies come from the agent (search, pages, Python, files).
+# Inside the jail they appear as 127.0.0.1:8000, :8888, :8890 and :8100. Nothing else is reachable.
+# Saved chats live in $LLAMA_CHAT_DATA (default ~/llama-chat-data); `llama-chat -c` resumes the latest.
+# Escape hatch (no jail, for debugging; no fetch door):  LLAMA_CHAT_NOJAIL=1 llama-chat
+APP="$HOME/llama-chat"
+PY="$APP/.venv/bin/python"
+DATA="${LLAMA_CHAT_DATA:-$HOME/llama-chat-data}"
+MODEL="${LLAMA_TARGET:-127.0.0.1:8000}"
+SEARCH="${LLAMA_SEARCH_TARGET:-192.168.1.196:8888}"
+FETCH="${LLAMA_FETCH:-on}"
+AGENT="${LLAMA_AGENT_TARGET:-192.168.1.210:8100}"
+AGENT_KEYFILE="${LLAMA_AGENT_KEY_FILE:-$HOME/.config/llama-chat/agent.key}"
+[ -r "$AGENT_KEYFILE" ] || AGENT=none
+mkdir -p "$DATA" && chmod 700 "$DATA"
+
+if [ -n "$LLAMA_CHAT_NOJAIL" ]; then
+  export LLAMA_CHAT_DATA="$DATA"
+  [ "$AGENT" != none ] && export AGENT_URL="http://$AGENT" AGENT_KEY_FILE="$AGENT_KEYFILE"
+  [ "$SEARCH" = none ] && exec "$PY" "$APP/chat.py" --no-search "$@"
+  exec "$PY" "$APP/chat.py" --searx "http://$SEARCH" "$@"
+fi
+
+RUN="$(mktemp -d)"                       # private (mode 700) dir holding the sockets
+trap 'kill $RELAY1 $RELAY2 $RELAY3 $RELAY4 2>/dev/null; rm -rf "$RUN"' EXIT
+trap 'exit 143' HUP TERM
+
+"$PY" "$APP/relay.py" unix2tcp "$RUN/model.sock" "${MODEL%:*}" "${MODEL##*:}" &
+RELAY1=$!
+if [ "$SEARCH" != none ]; then
+  "$PY" "$APP/relay.py" unix2tcp "$RUN/search.sock" "${SEARCH%:*}" "${SEARCH##*:}" &
+  RELAY2=$!
+fi
+if [ "$FETCH" != none ]; then
+  "$PY" "$APP/fetch_door.py" "$RUN/fetch.sock" &
+  RELAY3=$!
+fi
+KEYBIND=""
+if [ "$AGENT" != none ]; then
+  "$PY" "$APP/relay.py" unix2tcp "$RUN/agent.sock" "${AGENT%:*}" "${AGENT##*:}" &
+  RELAY4=$!
+  KEYBIND="--ro-bind $AGENT_KEYFILE /run/agent.key"
+fi
+i=0; while [ $i -lt 50 ]; do
+  [ -S "$RUN/model.sock" ] \
+    && { [ "$SEARCH" = none ] || [ -S "$RUN/search.sock" ]; } \
+    && { [ "$FETCH" = none ] || [ -S "$RUN/fetch.sock" ]; } \
+    && { [ "$AGENT" = none ] || [ -S "$RUN/agent.sock" ]; } && break
+  sleep 0.1; i=$((i+1))
+done
+
+bwrap \
+  --unshare-all --die-with-parent --clearenv \
+  --ro-bind /usr /usr \
+  --symlink usr/bin /bin --symlink usr/sbin /sbin --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
+  --ro-bind /etc/ld.so.cache /etc/ld.so.cache \
+  --ro-bind /etc/localtime /etc/localtime \
+  --ro-bind "$APP" /app \
+  --bind "$RUN" /run/relay \
+  --bind "$DATA" /data \
+  $KEYBIND \
+  --proc /proc --dev /dev --tmpfs /tmp \
+  --setenv HOME /tmp --setenv PATH /usr/bin:/bin \
+  --setenv TERM "${TERM:-xterm-256color}" --setenv COLORTERM "${COLORTERM:-truecolor}" \
+  --setenv LANG "${LANG:-C.UTF-8}" --setenv PYTHONDONTWRITEBYTECODE 1 \
+  --setenv LLAMA_URL 127.0.0.1:8000 --setenv SEARXNG_URL http://127.0.0.1:8888 \
+  --setenv LLAMA_CHAT_DATA /data \
+  ${LLAMA_API_KEY:+--setenv LLAMA_API_KEY "$LLAMA_API_KEY"} \
+  --chdir /app \
+  /bin/sh -c 'PY=/app/.venv/bin/python
+$PY /app/relay.py tcp2unix 8000 /run/relay/model.sock &
+if [ -S /run/relay/search.sock ]; then
+  $PY /app/relay.py tcp2unix 8888 /run/relay/search.sock &
+else
+  set -- --no-search "$@"
+fi
+if [ -S /run/relay/fetch.sock ]; then
+  $PY /app/relay.py tcp2unix 8890 /run/relay/fetch.sock &
+  export FETCH_URL=http://127.0.0.1:8890
+fi
+if [ -S /run/relay/agent.sock ]; then
+  $PY /app/relay.py tcp2unix 8100 /run/relay/agent.sock &
+  export AGENT_URL=http://127.0.0.1:8100 AGENT_KEY_FILE=/run/agent.key
+fi
+exec $PY /app/chat.py "$@"' sh "$@"
