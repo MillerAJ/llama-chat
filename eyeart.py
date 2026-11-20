@@ -103,9 +103,7 @@ def box_geometry(w: int, h: int, n: int, ew: int | None = None) -> dict:
         "box_top_px": box_top,
         "eye_w": ew,
         "eye": (0, 0, ew - 1, n // 2 - 1),                   # x0, y0, x1, y1 (cells, inclusive)
-        "text": (text_left, box_top // 2 + 2, w - 5, h - 3),   # where the eye's words go
-        "arrow_down": (text_left + (w - 4 - text_left) // 2, h - 2),
-        "arrow_up": (text_left + (w - 4 - text_left) // 2, box_top // 2 + 1),
+        "text": (text_left, box_top // 2 + 1, w - 4, h - 2),   # where you type: one row in from the thin rim
     }
 
 
@@ -118,14 +116,14 @@ def dialogue_pixels(w: int, h: int, n: int, glow: float, eye: list | None) -> li
     rim = mix(BOX_RIM_DIM, BOX_RIM_BRIGHT, glow)
     layers = (BOX_OUTLINE, rim, BOX_INNER, BOX_FILL)
     buf = [[None] * w for _ in range(hp)]
-    for y in range(bt, hp):                                  # the box: outline, rim, inner line, fill
+    for y in range(bt, hp):                                  # the box: outline, a thin glowing rim, fill
         dy = min(y - bt, hp - 1 - y)
-        lv = 0 if dy == 0 else 1 if dy <= 2 else 2 if dy == 3 else 3
+        lv = 0 if dy == 0 else 1 if dy == 1 else 3
         for x in range(bx, w):
             dx = min(x - bx, w - 1 - x)
             if dx == 0 and dy == 0:
                 continue                                     # clipped corners
-            lh = 0 if dx == 0 else 1 if dx == 1 else 2 if dx == 2 else 3
+            lh = 0 if dx == 0 else 1 if dx == 1 else 3
             buf[y][x] = layers[min(lv, lh)]
 
     def metal_block(x0, y0, x1, y1, light_left=True):

@@ -40,6 +40,9 @@ from eye import (EYE_CSS, EYE_MANNER, EFFORT_LABELS, EFFORTS, STATUS, EyeDialogu
                   Sound, TypingArea, load_settings, save_settings)
 
 
+TYPING_ROWS = 4   # lines of typing room in the eye's box (your text scrolls inside it beyond that)
+
+
 class ChatInput(Input):
     """The plain typing line (outside eye mode) with the usual editing keys: Ctrl+A selects everything,
     Ctrl+Z / Ctrl+Y undo and redo, Ctrl+C copies (with nothing selected here it copies what you highlighted in the
@@ -318,14 +321,14 @@ class ChatApp(App):
     def fit_eye(self) -> None:
         """Size the eye and the bottom bar to the terminal, so a short or narrow one still has room for the chat."""
         h, w = self.size.height, self.size.width
-        # The eye scales with the screen: about 60% of the terminal's height in pixels (rows x 2 x 0.3),
-        # never more than a quarter of the width, between 12 and 32 pixels, always even.
-        n = max(12, min(32, (h * 6 // 10) // 2 * 2, (w // 4) // 2 * 2))
+        # The eye scales with the screen: about 45% of the terminal's height in pixels, at most a fifth of
+        # the width, between 12 and 26 pixels, always even.
+        n = max(12, min(26, (h * 45 // 100) // 2 * 2, (w // 5) // 2 * 2))
         if n != self.eye.n:
             self.eye.set_size(n)
-        # The eye sits right on the bottom edge (no mount showing below it) and the box starts at the eye's
-        # middle, so the bar is just the eye's height; small eyes keep at least two lines to type in.
-        box_h = max(n // 2, n // 4 + 6)
+        # The box starts at the eye's middle and always has TYPING_ROWS lines to type in (plus its one-row rim
+        # top and bottom); the eye sits on the bottom edge when it is the taller of the two.
+        box_h = max(n // 2, n // 4 + TYPING_ROWS + 2)
         self.speech.styles.height = box_h
         self.speech.place_input()
         if self.settings["eye"]:
