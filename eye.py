@@ -28,7 +28,8 @@ from textual.screen import ModalScreen
 from textual.widget import Widget
 from rich.cells import cell_len
 from textual.message import Message
-from textual.widgets import Button, Checkbox, RadioButton, RadioSet, Static, TextArea
+from textual.widgets import Button, Checkbox, OptionList, RadioButton, RadioSet, Static, TextArea
+from textual.widgets.option_list import Option
 
 import eyeart
 
@@ -83,6 +84,8 @@ SettingsScreen { align: center middle; }
 
 # --- settings that stick -----------------------------------------------------------
 DEFAULTS = {"eye": False, "sounds": False, "motion": True, "effort": "off"}
+
+THINK_LABEL = "   THINK "   # the readout's label; the value after it opens the effort menu when clicked
 
 # Thinking effort: how long the model reasons before it answers. Off is fastest; Max is slowest and most careful.
 EFFORTS = ("off", "low", "medium", "max")
@@ -166,10 +169,11 @@ class Sound:
 _style_cache: dict = {}
 
 
-def _style(fg: tuple, bg: tuple, bold: bool = False) -> Style:
-    key = (fg, bg, bold)
+def _style(fg: tuple, bg: tuple, bold: bool = False, underline: bool = False) -> Style:
+    key = (fg, bg, bold, underline)
     if key not in _style_cache:
-        _style_cache[key] = Style(color=Color.from_rgb(*fg), bgcolor=Color.from_rgb(*bg), bold=bold)
+        _style_cache[key] = Style(color=Color.from_rgb(*fg), bgcolor=Color.from_rgb(*bg), bold=bold,
+                                  underline=underline)
     return _style_cache[key]
 
 
@@ -327,6 +331,7 @@ class EyeDialogue(Widget):
         self.hud_model = ""
         self.hud_msgs = 0
         self.hud_think = "OFF"
+        self.think_hit = None        # (row, first col, last col) of the THINK readout as last drawn: click it for a menu
 
     def set_hud(self, status: str | None = None, model: str | None = None, msgs: int | None = None,
                 think: str | None = None) -> None:
@@ -348,7 +353,8 @@ class EyeDialogue(Widget):
             [("NAV COMPUTER", _style((74, 92, 160), bg))],
             [("MODEL ", _style((111, 134, 214), bg)), (self.hud_model, _style((200, 215, 255), bg)),
              ("   MSGS ", _style((111, 134, 214), bg)), (str(self.hud_msgs), _style((200, 215, 255), bg)),
-             ("   THINK ", _style((111, 134, 214), bg)), (self.hud_think, _style((200, 215, 255), bg))],
+             (THINK_LABEL, _style((111, 134, 214), bg)),
+             (self.hud_think + " ▾", _style((200, 215, 255), bg, underline=True))],
         ]
 
     def compose(self) -> ComposeResult:
@@ -388,9 +394,18 @@ class EyeDialogue(Widget):
         self.refresh()
 
     # -- mouse --
+    class ThinkClicked(Message):
+        """The THINK readout was clicked; x, y are screen coordinates for the menu."""
+        def __init__(self, x: int, y: int) -> None:
+            super().__init__()
+            self.x, self.y = x, y
+
     def on_click(self, event: events.Click) -> None:
         x0, y0, x1, y1 = eyeart.box_geometry(self.size.width, self.size.height, self.eye.n)["eye"]
-        if x0 <= event.x <= x1 and y0 <= event.y <= y1:
+        hit = self.think_hit
+        if hit and event.y == hit[0] and hit[1] <= event.x <= hit[2]:
+            self.post_message(self.ThinkClicked(event.screen_x - (event.x - hit[1]), event.screen_y + 1))
+        elif x0 <= event.x <= x1 and y0 <= event.y <= y1:
             self.eye.click()
         else:                                            # anywhere else in the box: start typing
             self.query_one(TypingArea).focus()
@@ -409,6 +424,7 @@ class EyeDialogue(Widget):
         ew = g["eye_w"]
         hx, room = ew + 5, w - ew - 6                     # to the right of the eye and its bracket
         hud = {bt_row - 3 + i: line for i, line in enumerate(self.hud_lines()) if bt_row - 3 + i >= 0}
+        self.think_hit = None
         px = eyeart.dialogue_pixels(w, h, n, self.glow, self._eye_rows)
         bg = eyeart.NAVY
         blank = _style((255, 255, 255), eyeart.BOX_FILL)
@@ -419,11 +435,16 @@ class EyeDialogue(Widget):
             while x < w:
                 if r in hud and x == hx and room > 0:     # the readouts
                     used = 0
+                    think_from = None
                     for txt, st in hud[r]:
                         take = txt[: max(0, room - used)]
                         if take:
+                            if txt is THINK_LABEL:
+                                think_from = x + used + 3      # skip the spaces in front of the word
                             out.append(take, st)
                             used += cell_len(take)
+                    if think_from is not None:
+                        self.think_hit = (r, think_from, x + used - 1)
                     if used:
                         x += used
                         continue
@@ -441,6 +462,44 @@ class EyeDialogue(Widget):
             if r < h - 1:
                 out.append("\n")
         return out
+
+
+# --- the thinking-effort dropdown (click THINK in the readouts) --------------------
+class EffortMenu(ModalScreen):
+    """A small dropdown at (x, y). Dismisses with the chosen effort, or None (Esc / click outside)."""
+    BINDINGS = [("escape", "close", "Close")]
+    DEFAULT_CSS = """
+    EffortMenu { background: transparent; align: left top; }
+    EffortMenu OptionList { width: 12; height: auto; background: #14162b; border: round #36b08f; padding: 0; }
+    EffortMenu OptionList > .option-list--option-highlighted { background: #2a3b63; }
+    """
+
+    def __init__(self, current: str, x: int, y: int) -> None:
+        super().__init__()
+        self.current, self.at = current, (x, y)
+
+    def compose(self) -> ComposeResult:
+        yield OptionList(*[Option(("● " if e == self.current else "  ") + EFFORT_LABELS[e], id=e) for e in EFFORTS])
+
+    def on_mount(self) -> None:
+        menu = self.query_one(OptionList)
+        x, y = self.at
+        rows = len(EFFORTS) + 2
+        if y + rows > self.size.height:                 # no room below: open upwards
+            y = max(0, y - rows - 1)
+        menu.styles.offset = (max(0, min(x - 1, self.size.width - 12)), y)
+        menu.highlighted = EFFORTS.index(self.current)
+        menu.focus()
+
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        self.dismiss(event.option.id)
+
+    def on_click(self, event: events.Click) -> None:
+        if not self.query_one(OptionList).region.contains(event.screen_x, event.screen_y):
+            self.dismiss(None)                          # clicked outside the menu
+
+    def action_close(self) -> None:
+        self.dismiss(None)
 
 
 # --- the settings window -----------------------------------------------------------

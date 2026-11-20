@@ -35,8 +35,8 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import Footer, Header, Input, Static
 
 import eyeart
-from eye import (EYE_CSS, EYE_MANNER, EFFORT_LABELS, EFFORTS, STATUS, EyeDialogue, SettingsScreen, Sound,
-                  TypingArea, load_settings, save_settings)
+from eye import (EYE_CSS, EYE_MANNER, EFFORT_LABELS, EFFORTS, STATUS, EyeDialogue, EffortMenu, SettingsScreen,
+                  Sound, TypingArea, load_settings, save_settings)
 
 
 # 0. Who the assistant is ------------------------------------------------------
@@ -303,6 +303,13 @@ class ChatApp(App):
         nxt = EFFORTS[(EFFORTS.index(now) + 1) % len(EFFORTS)]
         self.apply_setting("effort", nxt)
         self.notify(f"Thinking effort: {EFFORT_LABELS[nxt]}", timeout=2)
+
+    def on_eye_dialogue_think_clicked(self, event: EyeDialogue.ThinkClicked) -> None:
+        """Clicked THINK in the eye's readouts: a little dropdown of the efforts, right there."""
+        def chosen(effort: str | None) -> None:
+            if effort and effort != self.settings["effort"]:
+                self.apply_setting("effort", effort)
+        self.push_screen(EffortMenu(self.settings["effort"], event.x, event.y), chosen)
 
     def get_system_commands(self, screen):
         """Add our entries to the menu (the button at the top left)."""
