@@ -35,8 +35,8 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import Footer, Header, Input, Static
 
 import eyeart
-from eye import (EYE_CSS, EYE_MANNER, STATUS, EyeDialogue, SettingsScreen, Sound, TypingArea,
-                  load_settings, save_settings)
+from eye import (EYE_CSS, EYE_MANNER, EFFORT_LABELS, EFFORTS, STATUS, EyeDialogue, SettingsScreen, Sound,
+                  TypingArea, load_settings, save_settings)
 
 
 # 0. Who the assistant is ------------------------------------------------------
@@ -65,6 +65,17 @@ SETTINGS = {
     "presence_penalty": 1.5,
     "chat_template_kwargs": {"enable_thinking": False},   # skip the slow "thinking" step (Qwen-style models)
 }
+# With thinking on, the makers' recommended settings for thinking mode, plus how hard to think
+# (what vLLM's chat template understands: low / medium / xhigh).
+THINK_SETTINGS = {"temperature": 0.6, "top_p": 0.95, "top_k": 20, "presence_penalty": 1.5}
+EFFORT_KWARGS = {"low": "low", "medium": "medium", "max": "xhigh"}
+
+
+def sampling(effort: str) -> dict:
+    """The request settings for a thinking effort (off / low / medium / max)."""
+    if effort not in EFFORT_KWARGS:
+        return SETTINGS
+    return {**THINK_SETTINGS, "chat_template_kwargs": {"reasoning_effort": EFFORT_KWARGS[effort]}}
 
 
 # The tools the model may call. Each one only exists if its server address is given.
@@ -100,6 +111,8 @@ MAX_TOOL_ROUNDS = 5   # stop a model that keeps calling tools forever; the last 
 # Agent mode: when an agent door is present, replies come from the Agno agent service (agent-box), which
 # has its own tools (web search, page reading, sandboxed Python, files) and keeps the conversation itself.
 AGENT_ID = os.environ.get("AGENT_ID", "assistant")
+AGENT_USER_ID = os.environ.get("AGENT_USER_ID", "llama-chat")            # who the agent files memories under
+AGENT_SESSION_PREFIX = os.environ.get("AGENT_SESSION_PREFIX", "llama-chat-")
 AGENT_TOOLS = {                       # tool name -> (eye mode, what the bubble says while it runs)
     "search_web": ("search", "Searching the web: {query}"),
     "fetch_page": ("fetch", "Reading: {url}"),
@@ -188,7 +201,7 @@ class ChatApp(App):
     Input  { margin: 0 2 1 2; }
     """ + EYE_CSS      # the extra look for eye mode lives in eye.py
 
-    BINDINGS = [("f2", "settings", "Settings")]
+    BINDINGS = [("f2", "settings", "Settings"), ("f3", "cycle_effort", "Thinking")]
 
     def __init__(self, url: str, model: str | None = None, api_key: str | None = None,
                  searx_url: str | None = None, chat_path: Path | None = None, resume: dict | None = None,
@@ -199,8 +212,9 @@ class ChatApp(App):
         self.agent_headers = {"Authorization": f"Bearer {agent_key}"} if agent_key else {}
         # One agent session per saved chat, so `llama-chat -c` picks the agent's memory back up too.
         stem = chat_path.stem if chat_path else "incognito-" + os.urandom(4).hex()
-        self.agent_session = "llama-chat-" + stem
-        self.settings = settings or load_settings(Path("/nonexistent"))      # eye / sounds / motion
+        self.agent_session = AGENT_SESSION_PREFIX + stem
+        self.settings = settings or load_settings(Path("/nonexistent"))      # eye / sounds / motion / effort
+        self.sub_base = ""           # "model @ where" for the header; the thinking effort is added after it
         self.settings_path = settings_path
         self.sound = Sound()
         self._live = None            # (bubble, text so far) while an answer is streaming in
@@ -227,7 +241,7 @@ class ChatApp(App):
         return PERSONA.format(manner=manner, now=self.now)
 
     # Settings: eye mode, text sounds, animation ---------------------------------
-    def apply_setting(self, name: str, value: bool) -> None:
+    def apply_setting(self, name: str, value: bool | str) -> None:
         self.settings[name] = value
         if self.settings_path:
             save_settings(self.settings_path, self.settings)
@@ -269,7 +283,10 @@ class ChatApp(App):
     def update_stats(self) -> None:
         """The readouts above the eye's box: which model, how many messages."""
         asked = sum(1 for m in self.history if m["role"] == "user")
-        self.speech.set_hud(model=self.model or "connecting...", msgs=asked)
+        effort = EFFORT_LABELS[self.settings["effort"]]
+        self.speech.set_hud(model=self.model or "connecting...", msgs=asked, think=effort.upper())
+        if self.sub_base:
+            self.sub_title = f"{self.sub_base}  ·  thinking: {effort}"
 
     def set_mode(self, mode: str) -> None:
         """Tell the eye and the status readout what EYE is doing: idle, think, speak, search, fetch."""
@@ -280,6 +297,13 @@ class ChatApp(App):
         if not isinstance(self.screen, SettingsScreen):
             self.push_screen(SettingsScreen(self.settings))
 
+    def action_cycle_effort(self) -> None:
+        """F3: Off -> Low -> Medium -> Max -> Off. Takes effect from the next message."""
+        now = self.settings["effort"]
+        nxt = EFFORTS[(EFFORTS.index(now) + 1) % len(EFFORTS)]
+        self.apply_setting("effort", nxt)
+        self.notify(f"Thinking effort: {EFFORT_LABELS[nxt]}", timeout=2)
+
     def get_system_commands(self, screen):
         """Add our entries to the menu (the button at the top left)."""
         yield from super().get_system_commands(screen)
@@ -288,6 +312,12 @@ class ChatApp(App):
             now_on = self.settings[key]
             yield SystemCommand(f"{label}: turn {'off' if now_on else 'on'}", f"Currently {'on' if now_on else 'off'}",
                                 lambda k=key, v=not now_on: self.apply_setting(k, v))
+        now = self.settings["effort"]
+        for e in EFFORTS:
+            if e != now:
+                yield SystemCommand(f"Thinking effort: {EFFORT_LABELS[e]}",
+                                    f"Currently {EFFORT_LABELS[now]} (F3 cycles)",
+                                    lambda v=e: self.apply_setting("effort", v))
 
     def new_bot_bubble(self, content="...") -> Static:
         return Static(content, classes="bot")
@@ -347,7 +377,7 @@ class ChatApp(App):
         if self.agent_url:
             await log.mount(Static(Text(AGENT_HELP, style="dim italic")))
         if self.model:                     # the user named the model: nothing to look up
-            self.sub_title = f"{self.model}  @  {self.url}"
+            self.sub_base = f"{self.model}  @  {self.url}"
             self.update_stats()
             return
         # Otherwise ask the server which model it is serving.
@@ -357,7 +387,7 @@ class ChatApp(App):
             r.raise_for_status()
             self.model = r.json()["data"][0]["id"]
             where = f"agent '{AGENT_ID}'" if self.agent_url else self.url
-            self.sub_title = f"{self.model}  @  {where}"      # shows in the header bar
+            self.sub_base = f"{self.model}  @  {where}"       # shows in the header bar
             self.update_stats()
         except Exception as e:
             self.sub_title = f"can't reach {self.url}: {e}"
@@ -403,7 +433,8 @@ class ChatApp(App):
                     if round_no == MAX_TOOL_ROUNDS:
                         tools = {}          # out of rounds: this pass has to answer in words
                     answer, calls = "", {}
-                    body = {"model": self.model, "messages": self.history, "stream": True, **SETTINGS, **tools}
+                    body = {"model": self.model, "messages": self.history, "stream": True,
+                            **sampling(self.settings["effort"]), **tools}
                     async with client.stream("POST", f"{self.url}/chat/completions", json=body) as r:
                         if r.status_code != 200:
                             raise RuntimeError(f"server answered HTTP {r.status_code}")
@@ -477,7 +508,8 @@ class ChatApp(App):
     async def reply_agent(self, bot: Static) -> None:
         log = self.query_one("#log")
         form = {"message": self.history[-1]["content"], "stream": "true",
-                "session_id": self.agent_session, "user_id": "llama-chat"}
+                "session_id": self.agent_session, "user_id": AGENT_USER_ID,
+                "metadata": json.dumps({"effort": self.settings["effort"]})}   # the agent applies it to this run
         answer, final = "", ""
         self.set_mode("think")
         try:

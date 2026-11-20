@@ -28,7 +28,7 @@ from textual.screen import ModalScreen
 from textual.widget import Widget
 from rich.cells import cell_len
 from textual.message import Message
-from textual.widgets import Button, Checkbox, Static, TextArea
+from textual.widgets import Button, Checkbox, RadioButton, RadioSet, Static, TextArea
 
 import eyeart
 
@@ -75,12 +75,18 @@ SettingsScreen { align: center middle; }
 #settings-box { width: 62; height: auto; padding: 1 2; background: #14162b; border: heavy #36b08f; }
 #settings-title { text-style: bold; color: #7dffd8; padding-bottom: 1; }
 #settings-hint { color: #8a8fb0; padding-top: 1; }
+#effort-title { color: #7dffd8; padding-top: 1; }
+#settings-box RadioSet { layout: horizontal; width: 100%; }
 #settings-box Button { margin-top: 1; }
 """
 
 
 # --- settings that stick -----------------------------------------------------------
-DEFAULTS = {"eye": False, "sounds": False, "motion": True}
+DEFAULTS = {"eye": False, "sounds": False, "motion": True, "effort": "off"}
+
+# Thinking effort: how long the model reasons before it answers. Off is fastest; Max is slowest and most careful.
+EFFORTS = ("off", "low", "medium", "max")
+EFFORT_LABELS = {"off": "Off", "low": "Low", "medium": "Medium", "max": "Max"}
 
 
 def load_settings(path: Path) -> dict:
@@ -88,8 +94,10 @@ def load_settings(path: Path) -> dict:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
         for k in DEFAULTS:
-            if isinstance(data.get(k), bool):
+            if isinstance(data.get(k), bool) and isinstance(DEFAULTS[k], bool):
                 s[k] = data[k]
+        if data.get("effort") in EFFORTS:
+            s["effort"] = data["effort"]
     except (OSError, ValueError):
         pass
     return s
@@ -318,8 +326,12 @@ class EyeDialogue(Widget):
         self.hud_status = "ONLINE"   # the readouts drawn above the box, to the right of the eye
         self.hud_model = ""
         self.hud_msgs = 0
+        self.hud_think = "OFF"
 
-    def set_hud(self, status: str | None = None, model: str | None = None, msgs: int | None = None) -> None:
+    def set_hud(self, status: str | None = None, model: str | None = None, msgs: int | None = None,
+                think: str | None = None) -> None:
+        if think is not None:
+            self.hud_think = think
         if status is not None:
             self.hud_status = status
         if model is not None:
@@ -335,7 +347,8 @@ class EyeDialogue(Widget):
             [("EYE", _style((125, 255, 216), bg, bold=True)), (f"   ▸ {self.hud_status}", _style((54, 176, 143), bg, bold=True))],
             [("NAV COMPUTER", _style((74, 92, 160), bg))],
             [("MODEL ", _style((111, 134, 214), bg)), (self.hud_model, _style((200, 215, 255), bg)),
-             ("   MSGS ", _style((111, 134, 214), bg)), (str(self.hud_msgs), _style((200, 215, 255), bg))],
+             ("   MSGS ", _style((111, 134, 214), bg)), (str(self.hud_msgs), _style((200, 215, 255), bg)),
+             ("   THINK ", _style((111, 134, 214), bg)), (self.hud_think, _style((200, 215, 255), bg))],
         ]
 
     def compose(self) -> ComposeResult:
@@ -444,6 +457,10 @@ class SettingsScreen(ModalScreen):
             yield Checkbox("eye mode: pixel-art eye and the eye's voice", self.settings["eye"], id="eye")
             yield Checkbox("Text sounds: a soft blip as letters appear", self.settings["sounds"], id="sounds")
             yield Checkbox("Animation: eye movement and the pulsing frame", self.settings["motion"], id="motion")
+            yield Static("Thinking effort  (F3 cycles it from the chat)", id="effort-title")
+            with RadioSet(id="effort"):
+                for e in EFFORTS:
+                    yield RadioButton(EFFORT_LABELS[e], self.settings["effort"] == e, id=f"effort-{e}")
             yield Static("Click the eye to make it blink. Three quick clicks: a surprise.\n"
                          "Over SSH, sounds use the terminal bell (turn it on in your terminal's settings).",
                          id="settings-hint")
@@ -451,6 +468,9 @@ class SettingsScreen(ModalScreen):
 
     def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
         self.app.apply_setting(event.checkbox.id, event.value)
+
+    def on_radio_set_changed(self, event: RadioSet.Changed) -> None:
+        self.app.apply_setting("effort", event.pressed.id.removeprefix("effort-"))
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         self.dismiss()
