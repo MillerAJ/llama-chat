@@ -147,17 +147,19 @@ def dialogue_pixels(w: int, h: int, n: int, glow: float, eye: list | None) -> li
     return buf
 
 
-def eye_pixels(n: int, pupil: float, lid: float, pal: dict, scan: float | None = None) -> list:
+def eye_pixels(n: int, pupil: float, lid: float, pal: dict, scan: float | None = None, spin: float = 0.0) -> list:
     """Draw the eye on an n x n grid.
 
     pupil: pupil radius as a fraction of the eye (about 0.12 tight focus ... 0.34 wide open)
     lid:   0 = open, 1 = shut
     scan:  a row number to light up like a scanner beam (None = off)
+    spin:  turns the pale crescent in the iris around the pupil (radians), for the "focus spin"
     """
     c = (n - 1) / 2
     R = n / 2
     iris_edge = 0.60
     seams = [math.radians(a) for a in (-100, 20, 140)]
+    cs, sn = math.cos(spin), math.sin(spin)
 
     def in_body(x: int, y: int) -> bool:
         """The housing's silhouette. Not a circle: a rounded-square body with a lug on each top corner
@@ -216,8 +218,11 @@ def eye_pixels(n: int, pupil: float, lid: float, pal: dict, scan: float | None =
                 t = max(0.0, min(1.0, t))
                 q = round(t * 4) / 4                        # quantised: that is what makes it look like pixel art
                 px = mix(pal["deep"], pal["mid"], q / 0.5) if q < 0.5 else mix(pal["mid"], pal["edge"], (q - 0.5) / 0.5)
-                if light < -0.2 and dy > 0 and 0.45 < t < 0.82:
-                    px = pal["light"]                       # the pale crescent at the bottom
+                rx = dx * cs + dy * sn                      # the crescent's frame, turned by `spin`
+                ry = -dx * sn + dy * cs
+                rlight = -(rx + ry) / (d * 1.4142 + 1e-9)
+                if rlight < -0.2 and ry > 0 and 0.45 < t < 0.82:
+                    px = pal["light"]                       # the pale crescent (at the bottom when spin = 0)
             gx, gy = -0.33 * R, -0.33 * R                   # the glint
             gd = math.hypot(dx - gx, dy - gy)
             gr = max(0.9, 0.13 * R)

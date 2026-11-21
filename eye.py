@@ -179,10 +179,12 @@ def _style(fg: tuple, bg: tuple, bold: bool = False, underline: bool = False) ->
 
 
 class EyeState:
-    """the eye's eye, without the drawing: it breathes (the pupil widens and narrows), blinks now and then,
-    sometimes shifts colour, and changes with what EYE is doing. step() returns the next frame's pixels."""
+    """the eye's eye, without the drawing. At rest it is calm: pink, breathing gently, an occasional blink and,
+    now and then, a slow "focus spin" (the pupil narrows while the iris's crescent turns once). Colour changes
+    only mean something: cyan searching, amber reading a page, red an error. step() returns the next frame."""
 
     COLOURS = {"think": "pink", "search": "cyan", "fetch": "amber", "error": "red"}
+    FOCUS_SECONDS = 2.2
 
     def __init__(self, n: int = 20) -> None:
         self.n = n
@@ -197,11 +199,9 @@ class EyeState:
         self._rainbow_until = 0.0
         self._clicks: list = []
         now = self._t0
-        self._next_blink = now + random.uniform(2, 5)
-        self._next_focus = now + random.uniform(6, 12)
-        self._next_shift = now + random.uniform(20, 40)
-        self._shift = ("pink", 0.0)
-        self._focus_until = 0.0
+        self._next_blink = now + random.uniform(4, 10)
+        self._next_focus = now + random.uniform(10, 20)
+        self._focus_start = -100.0
 
     def set_size(self, n: int) -> None:
         self.n = n
@@ -235,19 +235,21 @@ class EyeState:
 
         if self.motion and mode == "idle":              # the random little life events
             if now >= self._next_blink:
-                self.blink(double=random.random() < 0.2)
-                self._next_blink = now + random.uniform(3, 7)
+                self.blink(double=random.random() < 0.1)
+                self._next_blink = now + random.uniform(10, 20)
             if now >= self._next_focus:
-                self._focus_until = now + 0.8
-                self._next_focus = now + random.uniform(7, 14)
-            if now >= self._next_shift:
-                self._shift = (random.choice(["cyan", "green", "amber", "ice"]), now + random.uniform(3, 5))
-                self._next_shift = now + random.uniform(25, 45)
+                self._focus_start = now
+                self._next_focus = now + random.uniform(15, 30)
+        # the focus spin: FOCUS_SECONDS long, eased in and out
+        fp = (now - self._focus_start) / self.FOCUS_SECONDS
+        focusing = mode == "idle" and 0 <= fp < 1
+        ease = fp * fp * (3 - 2 * fp) if focusing else 0.0
+        spin = 2 * math.pi * ease
 
         if now < self._rainbow_until:                   # colour
             self._pal = eyeart.hue_palette(t * 0.4)
         else:
-            name = self.COLOURS.get(mode) or (self._shift[0] if (self.motion and now < self._shift[1]) else "pink")
+            name = self.COLOURS.get(mode, "pink")
             self._pal = eyeart.mix_palette(self._pal, eyeart.PALETTES[name], min(1.0, dt * 5))
 
         if mode == "think":                             # pupil: "focusing" while it works, breathing while it waits
@@ -258,8 +260,8 @@ class EyeState:
             target = 0.25 + 0.04 * math.sin(t * 6)
         elif mode == "error":
             target = 0.20 + 0.06 * math.sin(t * 23)
-        elif now < self._focus_until:
-            target = 0.15
+        elif focusing:
+            target = 0.27 - 0.10 * math.sin(math.pi * fp)      # narrows and opens again, smoothly
         else:
             target = 0.27 + (0.03 * math.sin(t * 1.3) if self.motion else 0)
         self._pupil += (target - self._pupil) * min(1.0, dt * 8)
@@ -270,7 +272,7 @@ class EyeState:
         scan = None
         if mode == "search":                            # a scanner beam sweeping down the eye
             scan = (now * self.n * 0.9) % (self.n * 1.3) - self.n * 0.15
-        return eyeart.eye_pixels(self.n, self._pupil, lid, self._pal, scan)
+        return eyeart.eye_pixels(self.n, self._pupil, lid, self._pal, scan, spin)
 
 
 class TypingArea(TextArea):
