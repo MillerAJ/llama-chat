@@ -278,7 +278,7 @@ class EyeState:
 class TypingArea(TextArea):
     """Your typing line inside the eye's box. It wraps long messages and grows downward as you type,
     filling the box. Enter sends; it behaves like Input as far as the app is concerned (.value).
-    Ctrl+A selects everything, Ctrl+Z / Ctrl+Y undo and redo, Ctrl+C copies (with nothing selected here it copies
+    Shift+Enter (or Alt+Enter / Ctrl+J) starts a new line. Ctrl+A selects everything, Ctrl+Z / Ctrl+Y undo and redo, Ctrl+C copies (with nothing selected here it copies
     what you highlighted in the conversation), Ctrl+V pastes."""
 
     BINDINGS = [Binding("ctrl+a", "select_all", "Select all", show=False)]
@@ -297,11 +297,19 @@ class TypingArea(TextArea):
         self.load_text(v)
         self.move_cursor(self.document.end)
 
+    NEWLINE_KEYS = ("shift+enter", "alt+enter", "ctrl+j")   # Shift+Enter where the terminal reports it; the others
+                                                             # work in every terminal
+
     async def _on_key(self, event: events.Key) -> None:
         if event.key == "enter":                         # Enter sends instead of starting a new line
             event.stop()
             event.prevent_default()
             self.post_message(self.Submitted(self, self.text))
+            return
+        if event.key in self.NEWLINE_KEYS:               # a new line in your message
+            event.stop()
+            event.prevent_default()
+            self.insert("\n")
             return
         await super()._on_key(event)
 
