@@ -51,7 +51,7 @@ The model can call a `web_search` tool when it needs current facts. llama-chat r
 against your [SearXNG](https://docs.searxng.org) server (JSON output must be enabled), hands the
 top results back to the model, and the model answers from them. The bubble shows
 "Searching the web: ..." while it works. The model needs native function calling (vLLM with
-tool calling on, as Llama-lite uses).
+tool calling on).
 
 If SearXNG only listens on its own machine, tunnel to it first, for example
 `ssh -L 8888:127.0.0.1:8888 motherbrain`, then the default address just works.
@@ -73,19 +73,19 @@ Every conversation is saved after each answer as a small JSON file in `~/.llama-
 (set `LLAMA_CHAT_DATA` to move it). Start with `llama-chat -c` to continue the latest one: the
 earlier messages are redrawn and the model remembers them. `--incognito` keeps a chat off disk.
 
-## eye mode
+## Eye mode
 
-Open the menu (the button at the top left, or press `F2` for Settings) and tick **eye mode**.
-You get EYE from *retro sci-fi*, laid out like the game's dialogue screen. At the bottom: his dialogue
-box, dark green with a glowing green rim, drawn as one piece of pixel art with his eye sitting on its top-left
-corner in a grey metal mount that wraps around the box. That box is where you type: your words start at the
-top after a ▸ prompt and fill the box as you go; Enter sends. His replies appear in the conversation above,
-with a blinking cursor while he talks. His readouts (status, model, message count) sit just above the box, to
-the right of the eye, which grows with your terminal. His voice:
-calm, economical, a little mission briefing, and "Sir" in every reply.
+Open the menu (the button at the top left, or press `F2` for Settings) and tick **Eye mode**.
+The bottom of the screen becomes a retro sci-fi dialogue screen: a dark green box with a glowing green rim,
+drawn as one piece of pixel art with a ship's-computer eye sitting on its top-left corner in a grey metal
+mount that wraps around the box. That box is where you type: your words start at the top after a ▸ prompt
+and fill the box as you go; Enter sends. Replies appear in the conversation above, with a blinking cursor
+while the assistant talks. The readouts (status, model, message count) sit just above the box, to the right
+of the eye, which grows with your terminal. The voice changes too: a calm, economical ship's computer with a
+little mission-briefing cadence.
 
 The eye is alive. The pupil breathes and sometimes snaps into focus, it blinks now and then, and
-now and then the iris drifts to another colour. It also shows what EYE is doing: it narrows and
+now and then the iris drifts to another colour. It also shows what the assistant is doing: it narrows and
 focuses while thinking, turns cyan with a scanner beam while searching, amber while reading a page,
 and red if something goes wrong. Click it to make it blink. Click it three times fast for a surprise.
 
@@ -95,7 +95,7 @@ and **Animation** (turn the movement off if you prefer stillness). Choices are r
 `settings.json` next to your saved chats. It needs a terminal with true colour.
 
 The eye is drawn by [`eyeart.py`](eyeart.py) (plain Python, no dependencies); [`eye.py`](eye.py)
-animates it and holds the settings window, the sound and the eye's voice.
+animates it and holds the settings window, the sound and the ship's-computer voice.
 
 ## How the code works
 

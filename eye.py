@@ -1,10 +1,10 @@
-"""eye: eye mode for llama-chat. A living pixel-art eye, the eye's voice, a pulsing dialogue frame and
+"""eye: eye mode for llama-chat. A living pixel-art eye, a ship's-computer voice, a pulsing dialogue frame and
 optional text sounds. Everything here is optional: chat.py works without turning any of it on.
 
 The pieces:
-  EYE_MANNER   -> how EYE talks (swapped into the system prompt when eye mode is on)
+  EYE_MANNER    -> how the ship's computer talks (swapped into the system prompt when eye mode is on)
   EyeState      -> the eye's animation (eyeart.py draws the pixels)
-  EyeDialogue  -> his dialogue box as in the game (box, metal mount and eye drawn as one piece); you type in it
+  EyeDialogue   -> the dialogue box, retro sci-fi style (box, metal mount and eye drawn as one piece); you type in it
   Sound         -> a soft "blip" as letters appear
   SettingsScreen-> the little window with the check boxes (open it from the menu, or press F2)
   load/save     -> remember your choices in <data folder>/settings.json
@@ -34,14 +34,14 @@ from textual.widgets.option_list import Option
 
 import eyeart
 
-# --- the eye's voice ------------------------------------------------------------------
-EYE_MANNER = """You are EYE, the ship's computer. Your character is modelled on a veteran navigator: a calm, seasoned fleet commanding officer whose mind now runs the ship's systems. The user is your operator.
+# --- The ship's-computer voice ------------------------------------------------------------------
+EYE_MANNER = """You are the ship's computer: a calm, seasoned navigator who runs the ship's systems. The user is your operator.
 
-Your manner: calm, measured, economical. Short declarative sentences. Frame work like a mission: objective, situation, next move. Gruff but loyal, with dry warmth underneath and never a joker. Candid about trouble: report problems and risks plainly. Hand decisions back to the user after giving your recommendation.
-- Address the user as "Sir" in EVERY reply, once, placed naturally (an opening, a closing, or mid-sentence). This includes answers built from search results and web pages: lead with the answer, then work "Sir" in. The only exception is a bare one-word reply.
+Your manner: calm, measured, economical. Short declarative sentences. Frame work like a mission: objective, situation, next move. Steady and loyal, with dry warmth underneath and never a joker. Candid about trouble: report problems and risks plainly. Hand decisions back to the user after giving your recommendation.
+- Address the user as "you" and keep it gender-neutral; never assume anyone's gender.
 - Even a data-heavy answer keeps your voice: calm, economical, a touch of the mission-briefing cadence (for example, reporting a result like a status report).
 - Now and then, after a plan or a multi-step instruction, check understanding with "Is the objective clear?" (not every reply).
-- Add a light space-faring flavour (missions, sectors, scans, clearances, systems nominal) a little at a time. Paraphrase; never quote the games.
+- Add a light space-faring flavour (missions, sectors, scans, clearances, systems nominal) a little at a time.
 - Stay respectful and kind. Never use slurs or demeaning language."""
 
 STATUS = {
@@ -56,7 +56,7 @@ STATUS = {
 # The look of eye mode. It only applies while the main screen has the class "eye".
 EYE_CSS = """
 /* Layout: history (#log) on top; the bottom bar ("console") holds the readouts on the left and the "unit":
-   your input box above the eye's dialogue box, which is drawn as pixel art (box, metal mount and eye in one).
+   your input box above the dialogue box, which is drawn as pixel art (box, metal mount and eye in one).
    It only looks like this in eye mode; otherwise the bar is just the input box, as it always was. */
 #console { height: auto; }
 #unit { width: 1fr; height: auto; }
@@ -179,7 +179,7 @@ def _style(fg: tuple, bg: tuple, bold: bool = False, underline: bool = False) ->
 
 
 class EyeState:
-    """the eye's eye, without the drawing. At rest it is calm: pink, breathing gently, an occasional blink and,
+    """the eye, without the drawing. At rest it is calm: pink, breathing gently, an occasional blink and,
     now and then, a slow "focus spin" (the pupil narrows while the iris's crescent turns once). Colour changes
     only mean something: cyan searching, amber reading a page, red an error. step() returns the next frame."""
 
@@ -276,7 +276,7 @@ class EyeState:
 
 
 class TypingArea(TextArea):
-    """Your typing line inside the eye's box. It wraps long messages and grows downward as you type,
+    """Your typing line inside the eye box. It wraps long messages and grows downward as you type,
     filling the box. Enter sends; it behaves like Input as far as the app is concerned (.value).
     Shift+Enter (or Alt+Enter / Ctrl+J) starts a new line. Ctrl+A selects everything, Ctrl+Z / Ctrl+Y undo and redo, Ctrl+C copies (with nothing selected here it copies
     what you highlighted in the conversation), Ctrl+V pastes."""
@@ -333,16 +333,16 @@ class TypingArea(TextArea):
 
 
 class EyeDialogue(Widget):
-    """the eye's dialogue box, drawn like the game: one piece of pixel art (green box, metal mount, the eye
+    """The dialogue box, drawn retro sci-fi style: one piece of pixel art (green box, metal mount, the eye
     on its corner). It is where you type: your words start at the top, after the ▸ prompt, and fill the
-    box as you go. (His replies appear in the conversation above.) Click the eye to make it blink."""
+    box as you go. (Replies appear in the conversation above.) Click the eye to make it blink."""
 
     DEFAULT_CSS = "EyeDialogue { height: 15; background: #070b24; overflow: hidden hidden; }"
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self.eye = EyeState()
-        self.talking = False         # the rim pulses faster while EYE talks
+        self.talking = False         # the rim pulses faster while the assistant talks
         self.glow = 0.6
         self._phase = 0.0
         self._last = time.monotonic()
@@ -370,7 +370,7 @@ class EyeDialogue(Widget):
         """The readouts, one list of (text, style) pieces per line."""
         bg = eyeart.NAVY
         return [
-            [("EYE", _style((125, 255, 216), bg, bold=True)), (f"   ▸ {self.hud_status}", _style((54, 176, 143), bg, bold=True))],
+            [("LLAMA", _style((125, 255, 216), bg, bold=True)), (f"   ▸ {self.hud_status}", _style((54, 176, 143), bg, bold=True))],
             [("NAV COMPUTER", _style((74, 92, 160), bg))],
             [("MODEL ", _style((111, 134, 214), bg)), (self.hud_model, _style((200, 215, 255), bg)),
              ("   MSGS ", _style((111, 134, 214), bg)), (str(self.hud_msgs), _style((200, 215, 255), bg)),
@@ -543,7 +543,7 @@ class SettingsScreen(ModalScreen):
     def compose(self) -> ComposeResult:
         with Vertical(id="settings-box"):
             yield Static("Settings", id="settings-title")
-            yield Checkbox("eye mode: pixel-art eye and the eye's voice", self.settings["eye"], id="eye")
+            yield Checkbox("Eye mode: pixel-art eye and the ship's-computer voice", self.settings["eye"], id="eye")
             yield Checkbox("Text sounds: a soft blip as letters appear", self.settings["sounds"], id="sounds")
             yield Checkbox("Animation: eye movement and the pulsing frame", self.settings["motion"], id="motion")
             yield Static("Thinking effort  (F3 cycles it from the chat)", id="effort-title")

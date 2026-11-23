@@ -40,7 +40,7 @@ from eye import (EYE_CSS, EYE_MANNER, EFFORT_LABELS, EFFORTS, STATUS, EyeDialogu
                   Sound, TypingArea, load_settings, save_settings)
 
 
-TYPING_ROWS = 4   # lines of typing room in the eye's box (your text scrolls inside it beyond that)
+TYPING_ROWS = 4   # lines of typing room in the eye box (your text scrolls inside it beyond that)
 
 
 class ChatInput(Input):
@@ -92,7 +92,7 @@ class ChatInput(Input):
 
 
 # 0. Who the assistant is ------------------------------------------------------
-# A quick, no-nonsense persona modelled on EYE from retro sci-fi. {now} is filled in at startup.
+# The assistant's persona: a voice ({manner}) plus the rules. {now} is filled in at startup.
 PERSONA = """{manner}
 It is {now}.
 
@@ -104,7 +104,7 @@ Rules:
 - If you still can't find the answer, say so plainly instead of guessing.
 - If you are not sure of something, say so plainly instead of guessing."""
 
-# The everyday voice. (eye mode swaps in EYE_MANNER from eye.py instead.)
+# The everyday voice. (Eye mode swaps in EYE_MANNER from eye.py instead.)
 DEFAULT_MANNER = """You are a friendly, helpful AI assistant.
 
 Your manner: warm, polite, patient and respectful toward everyone. Be inclusive and welcoming. Use gender-neutral language: never assume anyone's gender, and use "they", "them" or the person's own words and names unless they tell you their pronouns. Avoid terms like "sir", "ma'am", "guys" or "man" when addressing people; "you" and "friend" are fine. Keep a positive, encouraging tone, and keep any humour gentle and kind, never at anyone's expense. Stay respectful and even-handed on sensitive or contested topics: give balanced, factual information rather than pushing opinions. Never use slurs, stereotypes or demeaning language, and politely decline requests to produce them. If a request is harmful or unsafe, decline kindly and, where you can, suggest a safer alternative. You are an AI, and you never pretend to be a human."""
@@ -288,7 +288,7 @@ class ChatApp(App):
         self.history = [{"role": "system", "content": self.system_prompt()}] + (resume or {}).get("messages", [])
 
     def system_prompt(self) -> str:
-        """The voice (everyday or EYE) plus the rules. Rebuilt whenever eye mode is switched."""
+        """The voice (everyday or ship's computer) plus the rules. Rebuilt whenever eye mode is switched."""
         manner = EYE_MANNER if self.settings["eye"] else DEFAULT_MANNER
         return PERSONA.format(manner=manner, now=self.now)
 
@@ -300,18 +300,18 @@ class ChatApp(App):
         self.apply_settings()
 
     def apply_settings(self) -> None:
-        eye = self.settings["eye"]
-        self.main_screen.set_class(eye, "eye")
-        self.eye.set_active(eye)
+        eye_on = self.settings["eye"]
+        self.main_screen.set_class(eye_on, "eye")
+        self.eye.set_active(eye_on)
         self.eye.motion = self.settings["motion"]
         self.sound.on = self.settings["sounds"]
         self.history[0]["content"] = self.system_prompt()      # the voice changes from the next message on
-        self.title = "EYE" if eye else "llama-chat"
-        if not eye:                                           # drop the bar height we set by hand
+        self.title = "llama-chat"
+        if not eye_on:                                           # drop the bar height we set by hand
             self.bar.styles.clear_rule("height")
-        # Two typing lines: the plain one, and the one inside the eye's box. Use the one that's showing,
+        # Two typing lines: the plain one, and the one inside the eye box. Use the one that's showing,
         # and carry over anything you had half typed.
-        shown, hidden = (self.eye_input, self.input_box) if eye else (self.input_box, self.eye_input)
+        shown, hidden = (self.eye_input, self.input_box) if eye_on else (self.input_box, self.eye_input)
         if hidden.value and not shown.value:
             shown.value, hidden.value = hidden.value, ""
         self.call_later(shown.focus)
@@ -332,10 +332,10 @@ class ChatApp(App):
         self.speech.styles.height = box_h
         self.speech.place_input()
         if self.settings["eye"]:
-            self.bar.styles.height = box_h                     # the bar is just the eye's box (your typing line is inside it)
+            self.bar.styles.height = box_h                     # the bar is just the eye box (your typing line is inside it)
 
     def update_stats(self) -> None:
-        """The readouts above the eye's box: which model, how many messages."""
+        """The readouts above the eye box: which model, how many messages."""
         asked = sum(1 for m in self.history if m["role"] == "user")
         effort = EFFORT_LABELS[self.settings["effort"]]
         self.speech.set_hud(model=self.model or "connecting...", msgs=asked, think=effort.upper())
@@ -343,7 +343,7 @@ class ChatApp(App):
             self.sub_title = f"{self.sub_base}  ·  thinking: {effort}"
 
     def set_mode(self, mode: str) -> None:
-        """Tell the eye and the status readout what EYE is doing: idle, think, speak, search, fetch."""
+        """Tell the eye and the status readout what the assistant is doing: idle, think, speak, search, fetch."""
         self.eye.mode = mode
         self.speech.set_hud(status=STATUS[mode])
 
@@ -359,7 +359,7 @@ class ChatApp(App):
         self.notify(f"Thinking effort: {EFFORT_LABELS[nxt]}", timeout=2)
 
     def on_eye_dialogue_think_clicked(self, event: EyeDialogue.ThinkClicked) -> None:
-        """Clicked THINK in the eye's readouts: a little dropdown of the efforts, floating right there."""
+        """Clicked THINK in the readouts: a little dropdown of the efforts, floating right there."""
         for old in self.screen.query(EffortMenu):      # a second click closes it, like a dropdown
             old.close(None)
             return
@@ -374,8 +374,8 @@ class ChatApp(App):
     def get_system_commands(self, screen):
         """Add our entries to the menu (the button at the top left)."""
         yield from super().get_system_commands(screen)
-        yield SystemCommand("Settings", "eye mode, text sounds, animation (F2)", self.action_settings)
-        for key, label in (("eye", "eye mode"), ("sounds", "Text sounds"), ("motion", "Animation")):
+        yield SystemCommand("Settings", "Eye mode, text sounds, animation (F2)", self.action_settings)
+        for key, label in (("eye", "Eye mode"), ("sounds", "Text sounds"), ("motion", "Animation")):
             now_on = self.settings[key]
             yield SystemCommand(f"{label}: turn {'off' if now_on else 'on'}", f"Currently {'on' if now_on else 'off'}",
                                 lambda k=key, v=not now_on: self.apply_setting(k, v))
@@ -390,7 +390,7 @@ class ChatApp(App):
             return
         self._tick += 1
         self.fit_eye()                                         # follows the terminal if you resize it
-        self.speech.talking = self._live is not None           # the rim pulses faster while EYE talks
+        self.speech.talking = self._live is not None           # the rim pulses faster while the assistant talks
         if self._live and self._tick % 6 == 0:                 # the blinking underscore after the last letter
             self._cursor = " " if self._cursor == "▁" else "▁"
             bubble, text = self._live
@@ -407,8 +407,8 @@ class ChatApp(App):
     # 2. What is on screen ---------------------------------------------------
     def compose(self) -> ComposeResult:
         yield Header()
-        # In eye mode the bottom bar looks like the game's dialogue screen: the eye's dialogue box, drawn as one
-        # piece of pixel art with his eye on its corner and his readouts above it. You type inside the box.
+        # In eye mode the bottom bar is a retro sci-fi dialogue screen: the dialogue box, drawn as one
+        # piece of pixel art with the eye on its corner and the readouts above it. You type inside the box.
         # The history scrolls above. Without eye mode the bar is just the plain input line.
         yield VerticalScroll(id="log")                     # the conversation so far
         with Horizontal(id="console"):                     # the bottom bar
@@ -421,8 +421,8 @@ class ChatApp(App):
         self.main_screen = self.screen                     # remembered, because a settings window can cover it
         self.bar = self.query_one("#console")              # the whole bottom bar
         self.input_box = self.query_one("#msg", Input)     # the plain typing line
-        self.speech = self.query_one(EyeDialogue)         # the eye's dialogue box (with the eye on its corner)
-        self.eye_input = self.speech.query_one(TypingArea)   # the typing area inside the eye's box
+        self.speech = self.query_one(EyeDialogue)         # the dialogue box (with the eye on its corner)
+        self.eye_input = self.speech.query_one(TypingArea)   # the typing area inside the eye box
         self.eye = self.speech.eye
         self.input_box.focus()
         self.apply_settings()
@@ -458,7 +458,7 @@ class ChatApp(App):
         await self.send(event.value, event.input)
 
     async def on_typing_area_submitted(self, event: TypingArea.Submitted) -> None:
-        await self.send(event.text, event.area)            # Enter in the typing area inside the eye's box
+        await self.send(event.text, event.area)            # Enter in the typing area inside the eye box
 
     async def send(self, raw: str, box) -> None:
         text = raw.strip()
@@ -472,7 +472,7 @@ class ChatApp(App):
         await log.mount(Static(Text(text), classes="you"))   # your bubble
         bot = self.new_bot_bubble()                          # an empty bubble for the answer, in the history
         await log.mount(bot)
-        self.eye.blink()                                     # EYE acknowledges the message
+        self.eye.blink()                                     # the eye acknowledges the message
         log.scroll_end(animate=False)
         self.history.append({"role": "user", "content": text})
         self.update_stats()
@@ -699,7 +699,7 @@ def main() -> None:
     p.add_argument("-c", "--continue", dest="resume", action="store_true",
                    help="pick up the most recent saved conversation")
     p.add_argument("--incognito", action="store_true", help="don't save this conversation")
-    p.add_argument("--eye", action="store_true", help="start in eye mode (pixel-art eye and the eye's voice)")
+    p.add_argument("--eye", action="store_true", help="start in eye mode (pixel-art eye and the ship's-computer voice)")
     p.add_argument("--agent", default=os.environ.get("AGENT_URL"),
                    help="Agno agent service address (env AGENT_URL; key in env AGENT_KEY). Replies then come from the agent")
     p.add_argument("--no-agent", action="store_true", help="talk to the model directly even if an agent is configured")

@@ -1,6 +1,6 @@
-"""eyeart: draws the eye's eye as a grid of pixels. Pure Python, no dependencies.
+"""eyeart: draws the ship's-computer eye as a grid of pixels. Pure Python, no dependencies.
 
-EYE (the ship's computer in retro sci-fi) is a grey metal housing around a glowing iris with a
+It is a grey metal housing around a glowing iris with a
 dark pupil and a white glint. This file only does the DRAWING: give it a size, how wide the pupil
 is, how shut the eyelid is and which colours to use, and it hands back rows of (r, g, b) pixels
 (or None for "nothing here"). eye.py turns those pixels into terminal characters and animates them.
@@ -53,8 +53,8 @@ def hue_palette(hue: float) -> dict:
     return {"edge": c(0.85, 1.0), "mid": c(0.9, 0.75), "deep": c(1.0, 0.35), "light": c(0.3, 1.0)}
 
 
-# --- the eye's dialogue box, as in the game -------------------------------------------------
-# A dark green box with a bright green rim and a pale inner line. the eye's eye sits on its top-left
+# --- the dialogue box, retro sci-fi style -------------------------------------------------
+# A dark green box with a bright green rim and a pale inner line. the eye sits on its top-left
 # corner in a grey metal mount that wraps down around the box's left side and bottom corner.
 BOX_FILL = (29, 86, 52)
 BOX_OUTLINE = (9, 30, 17)
@@ -163,7 +163,7 @@ def eye_pixels(n: int, pupil: float, lid: float, pal: dict, scan: float | None =
 
     def in_body(x: int, y: int) -> bool:
         """The housing's silhouette. Not a circle: a rounded-square body with a lug on each top corner
-        (the right one a touch bigger), like the game's art. The iris inside stays round."""
+        (the right one a touch bigger), like retro sci-fi pixel art. The iris inside stays round."""
         if not (0 <= x < n and 0 <= y < n):
             return False
         ux, uy = (x - c) / R, (y - c) / R
